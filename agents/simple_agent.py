@@ -48,6 +48,18 @@ class SimpleAgent(Agent):
                """
         messages = []
         if self.system_prompt:
-            messages.append(Message(role=MessageRole.))
+            messages.append(Message(role="user", content=self.system_prompt))
 
+        # 添加历史消息
+        for msg in self._history:
+            messages.append(Message(role=msg.role, content=msg.content))
 
+        messages.append(Message(role="user", content=input_text))
+
+        response = self.llm.invoke(messages)
+
+        # 保存到历史记录
+        self.add_message(Message(input_text, "user"))
+        self.add_message(Message(response, "assistant"))
+
+        return response

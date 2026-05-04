@@ -1,9 +1,11 @@
 # HelloAgentsLLM统一接口
 import os
-from typing import Dict, List
+from typing import Dict, List, Iterator
 
 from dotenv import load_dotenv
 from openai import OpenAI
+
+from core.exceptions import HelloAgentsException
 
 # 加载 .env 文件中的环境变量
 load_dotenv()
@@ -30,20 +32,20 @@ class HelloAgentsLLM:
         self.model = model or os.getenv("LLM_MODEL_ID")
         api_key = api_key or os.environ.get("LLM_API_KEY")
         base_url = base_url or os.environ.get("LLM_BASE_URL")
-        timeout  = base_url or int(os.environ.get("LLM_TIMEOUT", 60))
+        timeout  = timeout or int(os.environ.get("LLM_TIMEOUT", 60))
 
         if not all([self.model, api_key, base_url]):
             return ValueError("模型ID、API密钥和服务地址必须被提供或在.env文件中定义。")
 
         self.client = OpenAI(api_key=api_key, base_url=base_url, timeout=timeout)
 
-    def think(self, messages:List[Dict[str, str]], temperature:float = 0 ) -> str:
+    def think(self, messages:List[Dict[str, str]], temperature:float = 0 ) -> Iterator[str]:
         """
-        调用大语言模型进行思考，并返回其响应。
+        调用大语言模型进行思考，并返回其响应。流式的
         """
         print(f"🧠 正在调用 {self.model} 模型...")
         try:
-            response = self.client.completions.create(
+            response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
                 temperature=temperature,
@@ -51,17 +53,39 @@ class HelloAgentsLLM:
             )
             # 处理流式响应
             print("✅ 大语言模型响应成功:")
-            collected_content = []
             for chunk in response:
                 content = chunk.choices[0].delta.content or ""
-                print(content, end="", flush=True)
-                collected_content.append(content)
+                if content:
+                    print(content, end="", flush=True)
+                    yield content
+            print()  # 在流式输出结束后换行
+
         except Exception as e:
             print(f"❌ 调用LLM API时发生错误: {e}")
-            return None
+            raise HelloAgentsException(f"LLM调用失败: {str(e)}")
+
+    def invoke(self, messages: list[dict[str, str]], **kwargs) -> str:
+        """
+         非流式调用LLM，返回完整响应。
+         适用于不需要流式输出的场景。
+         """
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                temperature=kwargs.get("temperature", 0),
+                max_tokens=kwargs.get('max_tokens', self.max_tokens),
+                **{k: v for k, v in kwargs.items() if k not in ['temperature', 'max_tokens']}
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            raise HelloAgentsException(f"LLM调用失败: {str(e)}")
 
 def main():
     llm = HelloAgentsLLM()
+    messages = [{"role": "user", "content": "你好"}]
+    response = llm.think(messages = messages)
+    print(response)
 
 if __name__ == "__main__":
     main()
